@@ -994,7 +994,7 @@ func events() {
 /* ---------------- CLI ---------------- */
 
 func usage() {
-	fmt.Println(`klshield (Kernloom Shield, XDP only)
+	fmt.Print(`klshield (Kernloom Shield, XDP only)
 
 Commands:
   attach-xdp   -iface eth0 [-obj bpf/klshield.bpf.o] [-force]
