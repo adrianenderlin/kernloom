@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5 :contentReference[oaicite:0]{index=0}
+        uses: actions/checkout@v5
 
       - name: Setup Go
-        uses: actions/setup-go@v6 :contentReference[oaicite:1]{index=1}
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
