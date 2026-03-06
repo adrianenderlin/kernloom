@@ -29,7 +29,7 @@ jobs:
       - name: Install clang/llvm for BPF
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang llvm make
+          sudo apt-get install -y clang llvm make libbpf-dev linux-libc-dev
 
       - name: Build BPF object
         run: make -C shield/bpf
