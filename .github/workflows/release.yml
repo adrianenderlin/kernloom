@@ -1,0 +1,81 @@
+name: Release (binaries)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5 :contentReference[oaicite:2]{index=2}
+
+      - name: Setup Go
+        uses: actions/setup-go@v6 :contentReference[oaicite:3]{index=3}
+        with:
+          go-version-file: go.mod
+
+      - name: Install clang/llvm for BPF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm make
+
+      - name: Build BPF object
+        run: make -C shield/bpf
+
+      - name: Build + package binaries
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          VERSION="${TAG}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          ldflags="-s -w \
+            -X 'github.com/${{ github.repository }}/pkg/version.Version=${VERSION}' \
+            -X 'github.com/${{ github.repository }}/pkg/version.Commit=${COMMIT}' \
+            -X 'github.com/${{ github.repository }}/pkg/version.Date=${DATE}'"
+
+          # Build matrix manually (linux only makes sense for XDP/eBPF)
+          for arch in amd64 arm64; do
+            # klshield
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch \
+              go build -trimpath -ldflags="${ldflags}" \
+              -o "dist/klshield_linux_${arch}" ./shield/cmd/klshield
+
+            # kliq
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch \
+              go build -trimpath -ldflags="${ldflags}" \
+              -o "dist/kliq_linux_${arch}" ./iq/cmd/kliq
+
+            # package: klshield bundle includes BPF obj
+            mkdir -p "dist/pkg_klshield_linux_${arch}/bpf"
+            cp "dist/klshield_linux_${arch}" "dist/pkg_klshield_linux_${arch}/klshield"
+            cp "shield/bpf/out/xdp_kernloom_shield.bpf.o" "dist/pkg_klshield_linux_${arch}/bpf/"
+
+            tar -C "dist/pkg_klshield_linux_${arch}" -czf "dist/klshield_${VERSION}_linux_${arch}.tar.gz" .
+
+            # package: kliq bundle
+            mkdir -p "dist/pkg_kliq_linux_${arch}"
+            cp "dist/kliq_linux_${arch}" "dist/pkg_kliq_linux_${arch}/kliq"
+            tar -C "dist/pkg_kliq_linux_${arch}" -czf "dist/kliq_${VERSION}_linux_${arch}.tar.gz" .
+          done
+
+          # checksums
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS.txt)
+
+      - name: Create GitHub Release + upload assets
+        uses: softprops/action-gh-release@v2 :contentReference[oaicite:4]{index=4}
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS.txt
