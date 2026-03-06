@@ -1,0 +1,8 @@
+kernloom-shield contains components under different licenses.
+
+- kernloom-shield/bpf/ (eBPF/XDP C sources): GPL-2.0-only
+- kernloom-shield/cmd/, kernloom-shield/internal/, kernloom-shield/pkg/ (Go userspace):
+  MPL-2.0 unless an SPDX header states otherwise.
+
+See the repository root LICENSE for the full licensing map and LICENSES/ for full texts.
+SPDX identifiers in file headers take precedence.
