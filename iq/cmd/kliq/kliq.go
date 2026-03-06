@@ -979,7 +979,7 @@ func profileByName(name string) profile {
 	case "ziti-router":
 		// High throughput / many data packets, NAT-friendly. Block only if sustained.
 		return profile{
-			Name: "ziti-router",
+			Name:    "ziti-router",
 			TrigPPS: 8000, TrigSyn: 200, TrigScan: 30,
 			WPPS: 0.60, WSyn: 0.25, WScan: 0.15, SevCap: 3.0,
 			SoftAt: 2, HardAt: 5, BlockAt: 12,
@@ -994,7 +994,7 @@ func profileByName(name string) profile {
 	case "ziti-controller":
 		// Public enrolment/API surface. More SYN-sensitive, cautious blocking.
 		return profile{
-			Name: "ziti-controller",
+			Name:    "ziti-controller",
 			TrigPPS: 80, TrigSyn: 20, TrigScan: 5,
 			WPPS: 0.35, WSyn: 0.40, WScan: 0.25, SevCap: 3.0,
 			SoftAt: 1, HardAt: 3, BlockAt: 9,
@@ -1013,7 +1013,7 @@ func profileByName(name string) profile {
 	case "ziti-router-bootstrap":
 		// Start tolerant (high trig-*), prefer rate-limit, avoid blocks early.
 		return profile{
-			Name: "ziti-router-bootstrap",
+			Name:    "ziti-router-bootstrap",
 			TrigPPS: 25000, TrigSyn: 600, TrigScan: 120,
 			WPPS: 0.60, WSyn: 0.25, WScan: 0.15, SevCap: 3.0,
 			SoftAt: 3, HardAt: 8, BlockAt: 999, // avoid blocking during bootstrap
@@ -1028,7 +1028,7 @@ func profileByName(name string) profile {
 	case "ziti-controller-bootstrap":
 		// Start tolerant to avoid FPs during onboarding. Rate-limit earlier, block disabled by default.
 		return profile{
-			Name: "ziti-controller-bootstrap",
+			Name:    "ziti-controller-bootstrap",
 			TrigPPS: 400, TrigSyn: 120, TrigScan: 30,
 			WPPS: 0.35, WSyn: 0.45, WScan: 0.20, SevCap: 3.0,
 			SoftAt: 2, HardAt: 6, BlockAt: 999,
@@ -1047,7 +1047,7 @@ func profileByName(name string) profile {
 	case "public-web":
 		// Public website (HTTP/HTTPS). Mostly PPS + SYN. Port-scan less relevant.
 		return profile{
-			Name: "public-web",
+			Name:    "public-web",
 			TrigPPS: 1200, TrigSyn: 250, TrigScan: 20,
 			WPPS: 0.55, WSyn: 0.30, WScan: 0.15, SevCap: 3.0,
 			SoftAt: 2, HardAt: 5, BlockAt: 12,
@@ -1062,7 +1062,7 @@ func profileByName(name string) profile {
 	case "public-api":
 		// Public JSON/API endpoint: bursty, higher PPS.
 		return profile{
-			Name: "public-api",
+			Name:    "public-api",
 			TrigPPS: 2500, TrigSyn: 500, TrigScan: 30,
 			WPPS: 0.55, WSyn: 0.30, WScan: 0.15, SevCap: 3.0,
 			SoftAt: 2, HardAt: 4, BlockAt: 10,
@@ -1077,7 +1077,7 @@ func profileByName(name string) profile {
 	case "idp":
 		// Identity Provider / Auth endpoints: SYN-sensitive, protect against auth abuse. NAT-friendly gating.
 		return profile{
-			Name: "idp",
+			Name:    "idp",
 			TrigPPS: 350, TrigSyn: 180, TrigScan: 10,
 			WPPS: 0.30, WSyn: 0.55, WScan: 0.15, SevCap: 3.0,
 			SoftAt: 1, HardAt: 3, BlockAt: 8,
@@ -1096,7 +1096,7 @@ func profileByName(name string) profile {
 	case "internal-app":
 		// Internal app: scanning/lateral movement more relevant; avoid blocking by default.
 		return profile{
-			Name: "internal-app",
+			Name:    "internal-app",
 			TrigPPS: 800, TrigSyn: 150, TrigScan: 8,
 			WPPS: 0.25, WSyn: 0.20, WScan: 0.55, SevCap: 3.0,
 			SoftAt: 3, HardAt: 6, BlockAt: 999,
@@ -1111,7 +1111,7 @@ func profileByName(name string) profile {
 	case "ssh-bastion":
 		// Protect SSH/bastion: low normal PPS, suspicious SYN/scan. Blocking ok but gated.
 		return profile{
-			Name: "ssh-bastion",
+			Name:    "ssh-bastion",
 			TrigPPS: 60, TrigSyn: 25, TrigScan: 5,
 			WPPS: 0.30, WSyn: 0.55, WScan: 0.15, SevCap: 3.0,
 			SoftAt: 1, HardAt: 2, BlockAt: 6,
@@ -1132,7 +1132,7 @@ func profileByName(name string) profile {
 
 func openPinnedMap(path string) (*ebpf.Map, error) { return ebpf.LoadPinnedMap(path, nil) }
 
-func ip4String(k [4]byte) string { return net.IPv4(k[0], k[1], k[2], k[3]).String() }
+func ip4String(k [4]byte) string  { return net.IPv4(k[0], k[1], k[2], k[3]).String() }
 func ip6String(k [16]byte) string { return net.IP(k[:]).String() }
 
 func minf(a, b float64) float64 {

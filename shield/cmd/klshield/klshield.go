@@ -917,7 +917,7 @@ func topSrc(n int, by string) {
 		case "droprl":
 			return out[i].DropRL > out[j].DropRL
 		case "drops":
-			return (out[i].DropAllow+out[i].DropDeny+out[i].DropRL) > (out[j].DropAllow+out[j].DropDeny+out[j].DropRL)
+			return (out[i].DropAllow + out[i].DropDeny + out[i].DropRL) > (out[j].DropAllow + out[j].DropDeny + out[j].DropRL)
 		default:
 			return out[i].Pkts > out[j].Pkts
 		}
