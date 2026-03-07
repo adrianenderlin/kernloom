@@ -4,16 +4,18 @@ set -eu
 # Kernloom installer
 #
 # Examples:
-#   curl -fsSL https://raw.githubusercontent.com/adrianenderlin/kernloom/master/install.sh | sudo sh
-#   curl -fsSL https://raw.githubusercontent.com/adrianenderlin/kernloom/master/install.sh | sudo sh -s -- klshield
-#   curl -fsSL https://raw.githubusercontent.com/adrianenderlin/kernloom/master/install.sh | sudo KERNLOOM_VERSION=v0.0.1 sh
-#   curl -fsSL https://raw.githubusercontent.com/adrianenderlin/kernloom/master/install.sh | sh -s -- --prefix "$HOME/.local/bin"
+#   curl -fsSL https://raw.githubusercontent.com/adrianenderlin/kernloom/main/install.sh | sudo sh
+#   curl -fsSL https://raw.githubusercontent.com/adrianenderlin/kernloom/main/install.sh | sudo sh -s -- klshield
+#   curl -fsSL https://raw.githubusercontent.com/adrianenderlin/kernloom/main/install.sh | sudo KERNLOOM_VERSION=v0.0.1 sh
+#   curl -fsSL https://raw.githubusercontent.com/adrianenderlin/kernloom/main/install.sh | sh -s -- --prefix "$HOME/.local/bin"
 
 REPO="adrianenderlin/kernloom"
 COMPONENT="all"            # all | kliq | klshield
 KERNLOOM_VERSION="${KERNLOOM_VERSION:-latest}"
 PREFIX="${PREFIX:-}"
-SHARE_DIR="${SHARE_DIR:-}"
+SHARE_DIR="${SHARE_DIR:-/usr/local/share/kernloom/bpf}"
+IQ_ETC_DIR="${IQ_ETC_DIR:-/etc/kernloom/iq}"
+IQ_VAR_DIR="${IQ_VAR_DIR:-/var/lib/kernloom/iq}"
 TMPDIR=""
 
 usage() {
@@ -22,21 +24,20 @@ Kernloom installer
 
 Usage:
   sh install.sh [all|kliq|klshield]
-  sh install.sh [--version TAG] [--prefix DIR] [--share-dir DIR] [all|kliq|klshield]
+  sh install.sh [--version TAG] [--prefix DIR] [all|kliq|klshield]
 
 Options:
   --version TAG   Install a specific release tag (default: latest)
-  --prefix DIR    Install directory for binaries
-                  (default: /usr/local/bin when root, otherwise ~/.local/bin)
-  --share-dir DIR Install directory for shared assets such as BPF objects
-                  (default: /usr/local/share/kernloom/bpf when root,
-                  otherwise ~/.local/share/kernloom/bpf)
+  --prefix DIR    Install directory (default: /usr/local/bin when root,
+                  otherwise ~/.local/bin)
   -h, --help      Show this help
 
 Environment:
   KERNLOOM_VERSION   Same as --version
   PREFIX             Same as --prefix
-  SHARE_DIR          Same as --share-dir
+  SHARE_DIR          BPF install directory (default: /usr/local/share/kernloom/bpf)
+  IQ_ETC_DIR         IQ config directory (default: /etc/kernloom/iq)
+  IQ_VAR_DIR         IQ state directory (default: /var/lib/kernloom/iq)
 USAGE
 }
 
@@ -67,25 +68,31 @@ resolve_latest_version() {
   printf '%s\n' "$tag"
 }
 
-pick_prefixes() {
-  if [ -z "$PREFIX" ]; then
-    if [ "$(id -u)" -eq 0 ]; then
-      PREFIX="/usr/local/bin"
-    else
-      PREFIX="$HOME/.local/bin"
-    fi
+pick_prefix() {
+  if [ -n "$PREFIX" ]; then
+    return 0
   fi
 
-  if [ -z "$SHARE_DIR" ]; then
-    if [ "$(id -u)" -eq 0 ]; then
-      SHARE_DIR="/usr/local/share/kernloom/bpf"
-    else
-      SHARE_DIR="$HOME/.local/share/kernloom/bpf"
-    fi
+  if [ "$(id -u)" -eq 0 ]; then
+    PREFIX="/usr/local/bin"
+  else
+    PREFIX="$HOME/.local/bin"
   fi
 }
 
-install_file() {
+install_executable() {
+  src="$1"
+  dst="$2"
+
+  if command -v install >/dev/null 2>&1; then
+    install -m 0755 "$src" "$dst"
+  else
+    cp "$src" "$dst"
+    chmod 0755 "$dst"
+  fi
+}
+
+install_data_file() {
   src="$1"
   dst="$2"
   mode="$3"
@@ -101,7 +108,7 @@ install_file() {
 verify_asset() {
   asset="$1"
   file="$2"
-  expected="$(awk -v a="$asset" '$2==a {print $1; exit}' "$TMPDIR/SHA256SUMS.txt")"
+  expected="$(grep "  $asset$" "$TMPDIR/SHA256SUMS.txt" | awk '{print $1}' || true)"
 
   if [ -z "$expected" ]; then
     echo "Error: checksum for $asset not found in SHA256SUMS.txt" >&2
@@ -133,80 +140,83 @@ download_release_file() {
   curl -fL --retry 3 --connect-timeout 10 -o "$out" "$url"
 }
 
-extract_release_archive() {
-  remote_name="$1"
-  archive="$TMPDIR/$remote_name"
-  extract_dir="$TMPDIR/extract-${remote_name%.tar.gz}"
+extract_archive() {
+  archive="$1"
+  extract_dir="$2"
+  mkdir -p "$extract_dir"
+  tar -xzf "$archive" -C "$extract_dir"
+}
 
-  echo "==> Downloading $remote_name" >&2
-  if ! download_release_file "$remote_name" "$archive"; then
-    echo "Error: failed to download $remote_name" >&2
+install_klshield_bpf() {
+  extract_dir="$1"
+  exact="$extract_dir/xdp_kernloom_shield.bpf.o"
+  found=""
+
+  if [ -f "$exact" ]; then
+    found="$exact"
+  else
+    found="$(find "$extract_dir" -type f -name 'xdp_kernloom_shield.bpf.o' | head -n 1 || true)"
+    if [ -z "$found" ]; then
+      found="$(find "$extract_dir" -type f -name '*.bpf.o' | head -n 1 || true)"
+    fi
+  fi
+
+  if [ -z "$found" ]; then
+    echo "Warning: no .bpf.o file found in klshield archive; skipping BPF object install" >&2
+    return 0
+  fi
+
+  mkdir -p "$SHARE_DIR"
+  target="$SHARE_DIR/xdp_kernloom_shield.bpf.o"
+
+  echo "==> Installing BPF object to $target"
+  install_data_file "$found" "$target" 0644
+}
+
+install_binary() {
+  bin="$1"
+  asset="${bin}_${KERNLOOM_VERSION}_linux_${ARCH}.tar.gz"
+  archive="$TMPDIR/$asset"
+  extract_dir="$TMPDIR/extract-$bin"
+
+  echo "==> Downloading $asset"
+  if ! download_release_file "$asset" "$archive"; then
+    echo "Error: failed to download $asset" >&2
     echo "       Check whether release '$KERNLOOM_VERSION' contains Linux/$ARCH assets." >&2
     exit 1
   fi
 
-  verify_asset "$remote_name" "$archive"
+  verify_asset "$asset" "$archive"
+  extract_archive "$archive" "$extract_dir"
 
-  mkdir -p "$extract_dir"
-  tar -xzf "$archive" -C "$extract_dir"
-  printf '%s\n' "$extract_dir"
-}
-
-install_binary_from_dir() {
-  src_dir="$1"
-  bin="$2"
-
-  found="$(find "$src_dir" -type f -name "$bin" | head -n 1 || true)"
+  found="$(find "$extract_dir" -type f -name "$bin" | head -n 1 || true)"
   if [ -z "$found" ]; then
-    echo "Error: could not find binary '$bin' inside extracted archive" >&2
+    echo "Error: could not find binary '$bin' inside $asset" >&2
     exit 1
   fi
 
   echo "==> Installing $bin to $PREFIX/$bin"
-  install_file "$found" "$PREFIX/$bin" 0755
-}
-
-install_bpf_from_dir() {
-  src_dir="$1"
-  bpf_paths="$(find "$src_dir" -type f -name '*.bpf.o' | sort || true)"
-
-  if [ -z "$bpf_paths" ]; then
-    echo "Error: no .bpf.o file found inside klshield archive" >&2
-    exit 1
-  fi
-
-  mkdir -p "$SHARE_DIR"
-  first_src=""
-  first_dst=""
-
-  for src in $bpf_paths; do
-    base="$(basename "$src")"
-    dst="$SHARE_DIR/$base"
-    echo "==> Installing $base to $dst"
-    install_file "$src" "$dst" 0644
-    if [ -z "$first_src" ]; then
-      first_src="$src"
-      first_dst="$dst"
-    fi
-  done
-
-  canonical="$SHARE_DIR/xdp_kernloom_shield.bpf.o"
-  if [ -n "$first_src" ] && [ "$first_dst" != "$canonical" ]; then
-    echo "==> Installing canonical BPF path to $canonical"
-    install_file "$first_src" "$canonical" 0644
-  fi
-}
-
-install_component() {
-  bin="$1"
-  asset="${bin}_${KERNLOOM_VERSION}_linux_${ARCH}.tar.gz"
-  extract_dir="$(extract_release_archive "$asset")"
-
-  install_binary_from_dir "$extract_dir" "$bin"
+  install_executable "$found" "$PREFIX/$bin"
 
   if [ "$bin" = "klshield" ]; then
-    install_bpf_from_dir "$extract_dir"
+    install_klshield_bpf "$extract_dir"
   fi
+}
+
+ensure_iq_layout() {
+  echo "==> Ensuring IQ directories"
+  mkdir -p "$IQ_ETC_DIR" "$IQ_VAR_DIR"
+
+  if [ ! -f "$IQ_ETC_DIR/whitelist.txt" ]; then
+    : > "$IQ_ETC_DIR/whitelist.txt"
+  fi
+
+  if [ ! -f "$IQ_VAR_DIR/feedback.json" ] || [ ! -s "$IQ_VAR_DIR/feedback.json" ]; then
+    printf '[]\n' > "$IQ_VAR_DIR/feedback.json"
+  fi
+
+  chmod 755 "$IQ_ETC_DIR" "$IQ_VAR_DIR" || true
+  chmod 644 "$IQ_ETC_DIR/whitelist.txt" "$IQ_VAR_DIR/feedback.json" || true
 }
 
 while [ "$#" -gt 0 ]; do
@@ -223,11 +233,6 @@ while [ "$#" -gt 0 ]; do
     --prefix)
       [ "$#" -ge 2 ] || { echo "Error: --prefix requires a value" >&2; exit 1; }
       PREFIX="$2"
-      shift 2
-      ;;
-    --share-dir)
-      [ "$#" -ge 2 ] || { echo "Error: --share-dir requires a value" >&2; exit 1; }
-      SHARE_DIR="$2"
       shift 2
       ;;
     -h|--help)
@@ -247,10 +252,10 @@ need curl
 need tar
 need uname
 need awk
+need grep
 need mktemp
 need id
 need find
-need sort
 
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH_RAW="$(uname -m)"
@@ -276,15 +281,16 @@ if [ "$KERNLOOM_VERSION" = "latest" ]; then
   KERNLOOM_VERSION="$(resolve_latest_version)"
 fi
 
-pick_prefixes
-mkdir -p "$PREFIX" "$SHARE_DIR"
+pick_prefix
+mkdir -p "$PREFIX"
 TMPDIR="$(mktemp -d)"
 
 echo "==> Kernloom release: $KERNLOOM_VERSION"
-echo "==> Platform:         $OS/$ARCH"
-echo "==> Binary prefix:    $PREFIX"
-echo "==> BPF asset dir:    $SHARE_DIR"
+echo "==> Platform: $OS/$ARCH"
+echo "==> Prefix:   $PREFIX"
+echo "==> Share dir: $SHARE_DIR"
 
+# SHA256SUMS is expected for release verification.
 echo "==> Downloading SHA256SUMS.txt"
 if ! download_release_file "SHA256SUMS.txt" "$TMPDIR/SHA256SUMS.txt"; then
   echo "Error: failed to download SHA256SUMS.txt for release '$KERNLOOM_VERSION'" >&2
@@ -293,11 +299,16 @@ fi
 
 case "$COMPONENT" in
   all)
-    install_component klshield
-    install_component kliq
+    install_binary klshield
+    install_binary kliq
+    ensure_iq_layout
     ;;
-  kliq|klshield)
-    install_component "$COMPONENT"
+  kliq)
+    install_binary kliq
+    ensure_iq_layout
+    ;;
+  klshield)
+    install_binary klshield
     ;;
   *)
     echo "Error: invalid component: $COMPONENT" >&2
@@ -310,9 +321,10 @@ echo "Installed files:"
 [ -x "$PREFIX/klshield" ] && echo "  - $PREFIX/klshield"
 [ -x "$PREFIX/kliq" ] && echo "  - $PREFIX/kliq"
 [ -f "$SHARE_DIR/xdp_kernloom_shield.bpf.o" ] && echo "  - $SHARE_DIR/xdp_kernloom_shield.bpf.o"
+[ -f "$IQ_ETC_DIR/whitelist.txt" ] && echo "  - $IQ_ETC_DIR/whitelist.txt"
+[ -f "$IQ_VAR_DIR/feedback.json" ] && echo "  - $IQ_VAR_DIR/feedback.json"
 
 echo
 echo "Examples:"
 echo "  sudo klshield attach-xdp -iface eth0 -obj $SHARE_DIR/xdp_kernloom_shield.bpf.o"
-echo "  sudo klshield stats"
 echo "  sudo kliq --help"
